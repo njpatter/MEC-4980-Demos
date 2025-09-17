@@ -68,15 +68,17 @@
 //////////////////////////////////////////////////////////////////////////////////////////
 
 #include <stdint.h>
-
-// Include the SparkFun qwiic OLED Library
-#include <SparkFun_Qwiic_OLED.h>
 #include <Wire.h>
 #include <SPI.h>
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BME280.h>
 
-// What device is being used in this demo
+// Include the SparkFun qwiic OLED Library
+#include <SparkFun_Qwiic_OLED.h>
+
+#define SEALEVELPRESSURE_HPA (1013.25)
+
+Adafruit_BME280 bme;
 
 #if defined(TRANSPARENT)
 QwiicTransparentOLED myOLED;
@@ -93,31 +95,44 @@ const char * deviceName = "Micro OLED";
 #endif
 
 int yoffset;
+float targetTemperature = 20.0;
+char degreeSys[] = "C";
+int pinButton = 10;
+int pinUp = 11;
+int pinDown = 12;
+bool prevPressed = false;
+bool prevUp = false;
+bool prevDown = false;
 
+enum MachineStates {
+    DisplayTemps, // 0
+    SetTemp, // 1
+    ChooseSystem // 2
+};
 
- 
+MachineStates currentState;
 
-#define SEALEVELPRESSURE_HPA (1013.25)
+////////////////////////////////////////////////////////////////////////////////////////////////
+// setup()
+// 
+// Standard Arduino setup routine
 
-Adafruit_BME280 bme; // I2C 
+void setup()
+{
+    currentState = DisplayTemps;
+    pinMode(pinButton, INPUT_PULLDOWN);
+    pinMode(pinUp, INPUT_PULLDOWN);
+    pinMode(pinDown, INPUT_PULLDOWN);
 
-unsigned long delayTime;
-
-void setup() {
-    Serial.begin(115200);
-    Serial.println(F("BME280 test"));
-
+    Serial.begin(9600);
+    delay(3000);
+    Serial.println("Testing BME sensor");
     if (! bme.begin(0x77, &Wire)) {
         Serial.println("Could not find a valid BME280 sensor, check wiring!");
         while (1);
     }
 
-    Serial.println("-- Default Test --");
-    Serial.println("normal mode, 16x oversampling for all, filter off,");
-    Serial.println("0.5ms standby period");
-    delayTime = 5000;
-    
-    delay(500);   //Give display time to power on 
+    delay(500);   //Give display time to power on
 
     Serial.println("\n\r-----------------------------------");
 
@@ -205,25 +220,51 @@ static const testRoutine testFunctions[] = {
     {invert, "**INVERT**"}        
 }; 
 
-////////////////////////////////////////////////////////////////////////////////////////////////
-// loop()
-// 
-// Standard Arduino loop routine
+
+float cToF(float degC) {
+    return (degC +32.0) * 9.0 / 5.0;
+}
+
+
 void loop()
 {
-
-    // loop over the test table entries, write title and run test.
-    for(uint8_t i=0; i < sizeof(testFunctions)/sizeof(testFunctions[0]); i++){
-
-        float temp = bme.readTemperature(); 
-        if(testFunctions[i].title){
-            myOLED.erase();
-            myOLED.text(3, yoffset, temp);
-            myOLED.display();
-        }
-        testFunctions[i].testFn();  // run test
-
-        delay(3000);
+    if(digitalRead(pinButton) && !prevPressed) {
+        currentState = MachineStates(((int)currentState + 1) % 3);
     }
-  
+
+    
+    prevPressed = digitalRead(pinButton);
+
+    char myNewText[50];
+    if (currentState == DisplayTemps) {
+        float temp = bme.readTemperature();
+        
+        sprintf(myNewText, "Tc: %.1f ", temp );
+        myOLED.erase();
+        myOLED.text(3, yoffset, myNewText);
+
+        sprintf(myNewText, "Ttar: %.1f", targetTemperature);
+        myOLED.text(3, yoffset + 12, myNewText);
+        myOLED.display(); 
+    } else if (currentState == SetTemp) {
+        if (digitalRead(pinUp) && !prevUp) {
+            targetTemperature++; // targetTemperature += 1.0; // targetTemperature = targerTempreature + 1.0;
+        }
+        if (digitalRead(pinDown) && !prevDown) {
+            targetTemperature--;
+        }
+        prevUp = digitalRead(pinUp);
+        prevDown = digitalRead(pinDown);
+        sprintf(myNewText, "Ttar: %.1f", targetTemperature);
+        myOLED.erase();
+        myOLED.text(3, yoffset, myNewText);
+        myOLED.display(); 
+    } else if (currentState == ChooseSystem) {
+        sprintf(myNewText, "System: %s", degreeSys); 
+        myOLED.erase();
+        myOLED.text(3, yoffset, myNewText);
+        myOLED.display(); 
+    }
+
+    
 }
